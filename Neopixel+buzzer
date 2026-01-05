@@ -1,0 +1,54 @@
+from machine import Pin, PWM
+from neopixel import NeoPixel
+import time
+import _thread
+
+pin = Pin(14, Pin.OUT)
+np = NeoPixel(pin, 12)
+buzzer = PWM(Pin(15))
+
+notes_list = [
+    (784, 4), (784, 4), (880, 4), (880, 4), (784, 4), (784, 4),
+    (659, 2), (784, 4), (784, 4), (659, 4), (659, 4), (587, 1.5),
+    (784, 4), (784, 4), (880, 4), (880, 4), (784, 4), (784, 4),
+    (659, 2), (784, 4), (659, 4), (587, 4), (659, 4), (523, 1.5) ]
+
+j = 0
+music = True
+
+def wheel(pos):
+    if pos < 85:
+        return (255 - pos * 3, pos * 3, 0)
+    elif pos < 170:
+        pos -= 85
+        return (0, 255 - pos * 3, pos * 3)
+    else:
+        pos -= 170
+        return (pos * 3, 0, 255 - pos * 3)
+
+def Neopixel():
+    global j
+    while music:
+        for i in range(12):
+            rc_index = (i * 256 // 12) + j
+            np[i] = wheel(rc_index & 255)
+        np.write()
+        j = j + 1
+        time.sleep(0.5)
+
+    for i in range(12):
+        np[i] = (0, 0, 0)
+    np.write()
+
+def play_tone():
+    global music
+    for freq, duration in notes_list:
+        buzzer.duty(1000)
+        buzzer.freq(freq)
+        time.sleep(1/duration)
+        buzzer.duty(0)
+        time.sleep(1/duration)
+    music = False
+
+_thread.start_new_thread(Neopixel, ())
+play_tone()
