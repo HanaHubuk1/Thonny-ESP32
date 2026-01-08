@@ -1,4 +1,9 @@
 LCD 구글 공룡게임 만들기 전 필독
 
-필요한 재료: ST7735S(1.8'128x160 RGB_TFT), ESP32 확장보드, 암-암 핀 8개, 암-수 핀 4개, 브레드보드 1개, 데이터 전송용 케이블(포트 선)
-제작 환경 : Thonny 사용, MicroPython 사용
+## 하드웨어: ST7735S(1.8'128x160 RGB_TFT), ESP32 확장보드, 암-암 핀 8개, 암-수 핀 4개, 브레드보드 1개, 데이터 전송용 케이블(포트 선)
+
+## 소프트웨어 : Thonny 사용, MicroPython 사용
+
+## 사용한 라이브러리 :
+  - ST7735 드라이버 [https://github.com/boochow/MicroPython-ST7735/blob/master/ST7735.py]
+  - 작성자 : GuyCarver (원작), boochow (수정작)
