@@ -1,0 +1,306 @@
+from machine import Pin, SPI
+import st7735
+import time
+import urandom
+
+# ST7735S 디스플레이 설정
+spi = SPI(2, baudrate=20000000, polarity=0, phase=0, sck=Pin(18), mosi=Pin(23))
+
+# TFT 클래스 생성 (라이브러리에 맞게 수정)
+display = st7735.TFT(spi, 2, 4, 15)  # (spi, DC, RST, CS)
+
+# 초기화 - 세 가지 중 하나 선택 (디스플레이에 맞게)
+display.initr()  # Red tab
+# display.initb()  # Blue tab
+# display.initg()  # Green tab
+
+# 버튼 설정 (GPIO 25번 핀)
+# 3핀 버튼 모듈은 OUT 핀을 사용 (누르면 HIGH, 안 누르면 LOW)
+button = Pin(25, Pin.IN)
+
+# 색상 정의 (라이브러리 내장 색상 사용)
+WHITE = st7735.TFT.WHITE
+BLACK = st7735.TFT.BLACK
+GREEN = st7735.TFT.GREEN
+RED = st7735.TFT.RED
+GRAY = st7735.TFT.GRAY
+BLUE = st7735.TFT.BLUE
+CYAN = st7735.TFT.CYAN
+
+# 게임 변수
+WIDTH = 128
+HEIGHT = 160
+GROUND_Y = 130
+
+# 간단한 5x7 폰트 데이터 (숫자와 일부 문자)
+FONT = {
+    '0': [0x7E, 0x81, 0x81, 0x81, 0x7E],
+    '1': [0x00, 0x82, 0xFF, 0x80, 0x00],
+    '2': [0xC2, 0xA1, 0x91, 0x89, 0x86],
+    '3': [0x42, 0x81, 0x89, 0x89, 0x76],
+    '4': [0x18, 0x14, 0x12, 0xFF, 0x10],
+    '5': [0x4F, 0x89, 0x89, 0x89, 0x71],
+    '6': [0x7E, 0x89, 0x89, 0x89, 0x72],
+    '7': [0x01, 0xE1, 0x11, 0x09, 0x07],
+    '8': [0x76, 0x89, 0x89, 0x89, 0x76],
+    '9': [0x4E, 0x91, 0x91, 0x91, 0x7E],
+    'G': [0x7E, 0x81, 0x81, 0x91, 0x72],
+    'A': [0xFE, 0x11, 0x11, 0x11, 0xFE],
+    'M': [0xFF, 0x02, 0x0C, 0x02, 0xFF],
+    'E': [0xFF, 0x89, 0x89, 0x89, 0x81],
+    'O': [0x7E, 0x81, 0x81, 0x81, 0x7E],
+    'V': [0x0F, 0x30, 0xC0, 0x30, 0x0F],
+    'R': [0xFF, 0x11, 0x11, 0x11, 0xEE],
+    'S': [0x46, 0x89, 0x89, 0x89, 0x72],
+    'C': [0x7E, 0x81, 0x81, 0x81, 0x42],
+    'D': [0xFF, 0x81, 0x81, 0x81, 0x7E],
+    'Y': [0x07, 0x08, 0xF0, 0x08, 0x07],
+    'B': [0xFF, 0x89, 0x89, 0x89, 0x76],
+    'T': [0x01, 0x01, 0xFF, 0x01, 0x01],
+    'N': [0xFF, 0x04, 0x08, 0x10, 0xFF],
+    'P': [0xFF, 0x11, 0x11, 0x11, 0x0E],
+    '?': [0x02, 0x01, 0x51, 0x09, 0x06],
+    ':': [0x00, 0x36, 0x36, 0x00, 0x00],
+    ' ': [0x00, 0x00, 0x00, 0x00, 0x00],
+}
+
+def draw_char(x, y, char, color, size=1):
+    """간단한 문자 그리기"""
+    if char not in FONT:
+        return x + 6 * size
+    
+    data = FONT[char]
+    for col in range(5):
+        byte = data[col]
+        for row in range(8):
+            if byte & (1 << row):
+                if size == 1:
+                    display.pixel((x + col, y + row), color)
+                else:
+                    display.fillrect((x + col * size, y + row * size), (size, size), color)
+    return x + 6 * size
+
+def draw_text(x, y, text, color, size=1):
+    """텍스트 그리기"""
+    cx = x
+    for char in text:
+        cx = draw_char(cx, y, char, color, size)
+    return cx
+
+class Dino:
+    def __init__(self):
+        self.x = 20
+        self.y = GROUND_Y - 20
+        self.width = 12
+        self.height = 20
+        self.vel_y = 0
+        self.gravity = 1
+        self.jump_power = -8  # 조금 올림 (-6 → -8)
+        self.is_jumping = False
+        self.last_y = self.y  # 이전 위치 저장
+        
+    def jump(self):
+        if not self.is_jumping:
+            self.vel_y = self.jump_power
+            self.is_jumping = True
+    
+    def update(self):
+        self.last_y = self.y
+        if self.is_jumping:
+            self.vel_y += self.gravity
+            self.y += self.vel_y
+            
+            if self.y >= GROUND_Y - self.height:
+                self.y = GROUND_Y - self.height
+                self.vel_y = 0
+                self.is_jumping = False
+    
+    def clear(self):
+        """이전 위치 지우기"""
+        display.fillrect((self.x, self.last_y), (self.width, self.height), BLACK)
+    
+    def draw(self):
+        # 공룡 머리
+        display.fillrect((self.x, self.y), (self.width, 8), WHITE)
+        # 공룡 몸
+        display.fillrect((self.x + 2, self.y + 8), (8, 12), WHITE)
+        # 눈
+        display.pixel((self.x + 2, self.y + 2), BLACK)
+
+class Obstacle:
+    def __init__(self, obs_type='ground'):
+        self.x = WIDTH
+        self.type = obs_type  # 'ground' 또는 'air'
+        
+        if self.type == 'air':
+            # 공중 장애물 (공룡 머리보다 약간 높게)
+            self.y = GROUND_Y - 35  # 공룡 점프 최고점 근처
+            self.width = 15
+            self.height = 8
+        else:
+            # 지상 장애물
+            self.y = GROUND_Y - 15
+            self.width = 10
+            self.height = 15
+            
+        self.speed = 8  # 2배로 증가 (4 → 8)
+        self.last_x = self.x
+    
+    def update(self):
+        self.last_x = self.x
+        self.x -= self.speed
+    
+    def clear(self):
+        """이전 위치 지우기"""
+        if self.type == 'air':
+            # 공중 장애물 전체 영역 지우기 (날개 포함)
+            display.fillrect((self.last_x, self.y - 2), (self.width, self.height + 2), BLACK)
+        else:
+            display.fillrect((self.last_x, self.y), (self.width, self.height), BLACK)
+    
+    def draw(self):
+        if self.type == 'air':
+            # 공중 장애물 (새 모양으로)
+            display.fillrect((self.x, self.y), (self.width, self.height), WHITE)
+            # 날개 표현
+            display.fillrect((self.x + 3, self.y - 2), (9, 2), WHITE)
+        else:
+            # 지상 장애물 (선인장)
+            display.fillrect((self.x, self.y), (self.width, self.height), WHITE)
+    
+    def off_screen(self):
+        return self.x < -self.width
+    
+    def collides_with(self, dino):
+        return (self.x < dino.x + dino.width and
+                self.x + self.width > dino.x and
+                self.y < dino.y + dino.height and
+                self.y + self.height > dino.y)
+
+def draw_ground():
+    display.hline((0, GROUND_Y), WIDTH, WHITE)
+
+def game_over_screen(score):
+    """게임 오버 화면"""
+    # 배경 박스
+    display.fillrect((5, 50), (118, 60), BLACK)
+    display.rect((5, 50), (118, 60), WHITE)
+    
+    # GAME OVER 텍스트 (1.5배 크기 느낌으로 작게)
+    draw_text(20, 65, 'GAME OVER', BLUE, 1)
+    
+    # 점수 표시
+    score_text = 'SCORE: ' + str(score)
+    draw_text(30, 85, score_text, WHITE, 1)
+    
+    # 버튼 입력 대기
+    time.sleep(0.5)  # 짧은 대기
+    
+    # 버튼이 눌려있으면 먼저 뗄 때까지 대기
+    while button.value() == 1:
+        time.sleep(0.05)
+    
+    # 버튼을 누를 때까지 대기
+    while button.value() == 0:
+        time.sleep(0.05)
+    
+    # 버튼을 뗄 때까지 대기
+    while button.value() == 1:
+        time.sleep(0.05)
+
+def main():
+    print("공룡 게임 시작!")
+    
+    # 초기 화면 한 번만 지우기
+    display.fill(BLACK)
+    
+    while True:
+        # 게임 초기화
+        dino = Dino()
+        obstacles = []
+        score = 0
+        frame_count = 0
+        game_running = True
+        obstacle_interval = 60
+        last_score = -1
+        
+        # 시작 화면
+        display.fill(BLACK)
+        draw_text(40, 70, 'READY?', WHITE, 1)
+        time.sleep(1)
+        
+        # 게임 화면 준비
+        display.fill(BLACK)
+        draw_ground()
+        
+        # 게임 루프
+        prev_button = 0  # 이전 버튼 상태
+        while game_running:
+            # 버튼 입력 처리 (버튼을 누른 순간만 점프)
+            current_button = button.value()
+            if current_button == 1 and prev_button == 0:
+                dino.jump()
+            prev_button = current_button
+            
+            # 공룡 업데이트
+            if dino.y != dino.last_y:  # 위치가 변경되었을 때만
+                dino.clear()  # 이전 위치 지우기
+            dino.update()
+            dino.draw()
+            
+            # 장애물 생성
+            frame_count += 1
+            if frame_count % obstacle_interval == 0:
+                # 30% 확률로 공중 장애물, 70% 확률로 지상 장애물
+                if urandom.randint(1, 10) <= 3:
+                    obstacles.append(Obstacle('air'))
+                else:
+                    obstacles.append(Obstacle('ground'))
+                    
+                if obstacle_interval > 30:  # 더 빠른 속도에 맞게 조정
+                    obstacle_interval -= 2
+            
+            # 장애물 업데이트 및 그리기
+            for obs in obstacles[:]:
+                if obs.x != obs.last_x:  # 위치가 변경되었을 때만
+                    obs.clear()  # 이전 위치 지우기
+                obs.update()
+                obs.draw()
+                
+                # 충돌 감지
+                if obs.collides_with(dino):
+                    game_running = False
+                
+                # 화면 밖으로 나간 장애물 제거
+                if obs.off_screen():
+                    obs.clear()
+                    obstacles.remove(obs)
+                    score += 1
+            
+            # 땅 그리기 (매 프레임)
+            draw_ground()
+            
+            # 점수 표시 (변경되었을 때만 업데이트)
+            if score != last_score:
+                # 이전 점수 영역 지우기
+                display.fillrect((5, 5), (80, 10), BLACK)
+                # 새 점수 그리기
+                draw_text(5, 5, 'SCORE: ' + str(score), WHITE, 1)
+                last_score = score
+            
+            # 프레임 딜레이 (속도 증가에 맞춰 조정)
+            time.sleep(0.025)  # 40 FPS
+        
+        # 게임 오버
+        print("게임 오버! 점수:", score)
+        game_over_screen(score)
+
+# 게임 시작
+try:
+    main()
+except KeyboardInterrupt:
+    display.fill(BLACK)
+    print("게임 종료")
+except Exception as e:
+    print("오류:", e)
+    display.fill(BLACK)
