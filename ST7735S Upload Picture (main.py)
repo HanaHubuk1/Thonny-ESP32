@@ -1,0 +1,103 @@
+#ESP32보드에 image.bmp 파일을 cmd를 활용해서 업로드할 것
+  
+#1. cmd에 "pip install ampy" 입력 후 ampy 다운로드
+#2. .jpg 사진을 128 x 160 사이의 크기로 조정
+#3. .jpg 사진을 .bmp로 변환
+#4. 그림판을 사용하여 32비트 사진에서 24비트 사진으로 저장(다른 이름으로 저장 하면 됨)
+#5. ampy --port COM3 put C:\Users\사용자명\Desktop\image.bmp (COM3 부분은 본인의 포트번호로 변경, 사용자명은 본인 컴퓨터 명)
+#6. ESP32 보드에 이 코드 main.py로 저장 후 실행 => LCD에 image.bmp 사진이 업로드됨
+
+from machine import Pin, SPI
+import st7735
+
+# ST7735S 디스플레이 설정
+spi = SPI(2, baudrate=20000000, polarity=0, phase=0, sck=Pin(18), mosi=Pin(23))
+display = st7735.TFT(spi, 2, 4, 15)
+display.initr()
+
+def load_bmp(filename, x=0, y=0):
+    """BMP 파일을 읽어서 디스플레이에 표시"""
+    try:
+        with open(filename, 'rb') as f:
+            # BMP 헤더 읽기
+            if f.read(2) != b'BM':
+                print("BMP 파일이 아닙니다!")
+                return False
+            
+            # 파일 크기
+            f.read(4)
+            # 예약 영역
+            f.read(4)
+            # 이미지 데이터 시작 위치
+            pixel_offset = int.from_bytes(f.read(4), 'little')
+            
+            # DIB 헤더
+            header_size = int.from_bytes(f.read(4), 'little')
+            width = int.from_bytes(f.read(4), 'little')
+            height = int.from_bytes(f.read(4), 'little')
+            
+            f.read(2)  # planes
+            bits_per_pixel = int.from_bytes(f.read(2), 'little')
+            
+            if bits_per_pixel != 24:
+                print(f"24비트 BMP만 지원합니다! (현재: {bits_per_pixel}비트)")
+                return False
+            
+            print(f"이미지 크기: {width}x{height}, {bits_per_pixel}비트")
+            
+            # 이미지 데이터로 이동
+            f.seek(pixel_offset)
+            
+            # BMP는 하단부터 저장되므로 위에서부터 그리기 위해 역순으로
+            row_size = (width * 3 + 3) & ~3  # 4바이트 정렬
+            
+            for row in range(height):
+                # 실제 y 좌표 (BMP는 하단부터이므로 뒤집기)
+                current_y = y + (height - 1 - row)
+                
+                # 윈도우 설정
+                display._setwindowloc((x, current_y), (x + width - 1, current_y))
+                display._writecommand(st7735.TFT.RAMWR)
+                
+                # 한 줄씩 읽기
+                row_data = f.read(row_size)
+                
+                # RGB888 -> RGB565 변환 및 전송
+                pixels = bytearray(width * 2)
+                for i in range(width):
+                    b = row_data[i * 3]
+                    g = row_data[i * 3 + 1]
+                    r = row_data[i * 3 + 2]
+                    
+                    # RGB565 변환
+                    rgb565 = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
+                    pixels[i * 2] = rgb565 >> 8
+                    pixels[i * 2 + 1] = rgb565 & 0xFF
+                
+                display._writedata(pixels)
+            
+            print(f"{filename} 로드 완료!")
+            return True
+            
+    except OSError as e:
+        print(f"파일을 찾을 수 없습니다: {filename}")
+        print(f"오류: {e}")
+        return False
+    except Exception as e:
+        print(f"오류 발생: {e}")
+        return False
+
+# 테스트 코드
+try:
+    print("이미지 표시 중...")
+    display.fill(st7735.TFT.BLACK)
+    
+    # image.bmp를 화면 전체에 표시
+    load_bmp('image.bmp', 0, 0)
+    
+    # 또는 중앙에 표시하려면 (이미지 크기에 맞게 조정)
+    # load_bmp('image.bmp', 32, 48)
+    
+except KeyboardInterrupt:
+    display.fill(st7735.TFT.BLACK)
+    print("종료")
