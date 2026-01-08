@@ -1,3 +1,5 @@
+#Thonny 사용, MicroPython 사용
+
 from machine import Pin, SPI
 import st7735
 import time
